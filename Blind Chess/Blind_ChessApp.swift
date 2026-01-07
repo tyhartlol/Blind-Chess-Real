@@ -1,14 +1,9 @@
-//
-//  Blind_ChessApp.swift
-//  Blind Chess
-//
-//  Created by Tyler Hartman on 1/5/26.
-//
+
 
 import SwiftUI
 
 @main
-struct Blind_ChessApp: App {
+struct TranscriberApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
