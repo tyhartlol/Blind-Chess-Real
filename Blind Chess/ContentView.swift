@@ -1,68 +1,36 @@
 import SwiftUI
 
 struct ContentView: View {
-    
     @StateObject private var vm = SpeechChessViewModel()
-    @State private var moveCommand: ChessMove?
-    
+    @State private var webMoveTrigger: ChessMove?
     @State private var isPlayingWhite = true
-    
-    @State private var selectedPiece = "P" // Default to White Pawn
-    @State private var destinationString = "e4"
-    
-    let pieces = [
-        ("Pawn", "P"), ("Rook", "R"), ("Knight", "N"),
-        ("Bishop", "B"), ("Queen", "Q"), ("King", "K")
-    ]
-    
+
     var body: some View {
         VStack(spacing: 16) {
-            
-            // 1️⃣ Transcript
+            // 1. Transcript Display
             VStack(alignment: .leading) {
-                
-                
-                Text(vm.transcript.isEmpty ? "Listening... Hello" : vm.transcript)
+                Text(vm.transcript.isEmpty ? "Listening..." : vm.transcript)
                     .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.gray.opacity(0.15))
+                    .frame(maxWidth: .infinity, minHeight: 70, alignment: .leading)
+                    .background(Color.black.opacity(0.8))
+                    .foregroundColor(.yellow)
+                    .font(.system(.body, design: .monospaced))
                     .cornerRadius(12)
             }
             
-            // 2️⃣ Parsed move
+            // 2. Parsed Move Status
             HStack(spacing: 6) {
-                Text("Piece: \(vm.piece)  |")
-                Text("Move: \(vm.move)")
+                Text("Piece: \(vm.piece.capitalized)  |")
+                Text("Move: \(vm.move.uppercased())")
             }
             .font(.title3)
+            .bold()
             
-            HStack(spacing: 16) {
-                Picker("Piece", selection: $selectedPiece) {
-                    ForEach(pieces, id: \.1) { Text($0.0).tag($0.1) }
-                }
-                .pickerStyle(.menu)
-                .background(Color.blue.opacity(0.1))
-                .cornerRadius(8)
-                                    
-                TextField("e4", text: $destinationString)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 60)
-                    .autocapitalization(.none)
-                
-                Button("Move") {
-                    handleManualMove()
-                }
-                .buttonStyle(.borderedProminent)
-                
-                Button("e2 -> e4") {
-                    moveCommand = ChessMove(from: "52", to: "54")
-                }
-            }
-            
-            
+            // 3. Chess.com Web View
             ChessComWebView(
                 url: URL(string: "https://www.chess.com/play/computer")!,
-                moveCommand: $moveCommand, isPlayingWhite: $isPlayingWhite
+                moveCommand: $webMoveTrigger,
+                isPlayingWhite: $isPlayingWhite
             )
             .frame(height: UIScreen.main.bounds.height * 0.55)
             .cornerRadius(12)
@@ -71,79 +39,34 @@ struct ContentView: View {
                     .stroke(Color.gray.opacity(0.3))
             )
             
-            // 4️⃣ Controls
-            HStack(spacing: 16) {
-                
-                Button("Start") {
+            // 4. Controls
+            HStack(spacing: 20) {
+                Button("START") {
                     Task { try? vm.startListening() }
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 
-                Button("Stop") {
+                Button("STOP") {
                     vm.stopListening()
                 }
                 .buttonStyle(.bordered)
-                
+                .controlSize(.large)
             }
-            
         }
         .padding()
-        
-        .onChange(of: vm.move) { oldValue, newValue in
-            if newValue != "none" {
-                handleVoiceMove(target: newValue)
+        // Sync the player side to the ViewModel
+        .onChange(of: isPlayingWhite) { _, newValue in
+            vm.isPlayingWhite = newValue
+        }
+        // When the VM generates a command via ChessGameManager, trigger the WebView
+        .onChange(of: vm.pendingMoveCommand) { _, newCommand in
+            if let cmd = newCommand {
+                self.webMoveTrigger = cmd
             }
         }
-        
         .task {
             await vm.requestPermissions()
         }
     }
-    
-    
-    func handleVoiceMove(target: String) {
-        let spokenPiece = vm.piece.lowercased().trimmingCharacters(in: .whitespaces)
-        
-        // Determine color based on your current setup
-        // You could also add a Toggle in the UI for "isPlayingWhite"
-        
-        let pieceMapping: [String: String] = [
-            "pawn": isPlayingWhite ? "P" : "p",
-            "rook": isPlayingWhite ? "R" : "r",
-            "knight": isPlayingWhite ? "N" : "n",
-            "night": isPlayingWhite ? "N" : "n",
-            "bishop": isPlayingWhite ? "B" : "b",
-            "queen": isPlayingWhite ? "Q" : "q",
-            "king": isPlayingWhite ? "K" : "k"
-        ]
-        
-        guard let pieceChar = pieceMapping[spokenPiece] else { return }
-        
-        if let targetSquare = notationToSquare(target) {
-            moveCommand = ChessMove(from: "FIND:\(pieceChar)", to: targetSquare)
-        }
-    }
-    
-    func handleManualMove() {
-            // Convert "e4" -> "54"
-        guard let target = notationToSquare(destinationString) else {
-            print("Invalid Destination")
-            return
-        }
-        
-        // We set the moveCommand.
-        // Note: In ChessComWebView, we will add logic to find the 'from'
-        // based on the 'selectedPiece' provided.
-        // For now, we signal the move.
-        moveCommand = ChessMove(from: "FIND:\(selectedPiece)", to: target)
-    }
-    
-    func notationToSquare(_ notation: String) -> String? {
-        let n = notation.lowercased()
-        guard n.count == 2 else { return nil }
-        let files = ["a":1, "b":2, "c":3, "d":4, "e":5, "f":6, "g":7, "h":8]
-        guard let f = files[String(n.first!)], let r = n.last?.wholeNumberValue else { return nil }
-        return "\(f)\(r)"
-    }
 }
-

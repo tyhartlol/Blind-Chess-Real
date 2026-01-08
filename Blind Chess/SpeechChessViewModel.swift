@@ -1,41 +1,55 @@
 import Foundation
 import Speech
 import AVFoundation
-import SwiftUI
 
 @MainActor
 class SpeechChessViewModel: ObservableObject {
-
-    // UI state
     @Published var transcript: String = ""
     @Published var piece: String = "none"
     @Published var move: String = "none"
+    @Published var pendingMoveCommand: ChessMove?
+    
+    var isPlayingWhite: Bool = true
+    private var isProcessing = false
 
-    // Speech
     private let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private let audioEngine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
 
-    // MARK: - Permissions
+    init() {
+        // Clear UI when the bot starts speaking
+        TextToSpeechManager.shared.onSpeechStatusChanged = { [weak self] isSpeaking in
+            if isSpeaking {
+                Task { @MainActor in
+                    print("Stopping mic.")
+                    self?.stopListening()
+                }
+            } else {
+                print("✅ Bot finished: Restarting clean session...")
+                self?.isProcessing = false
+                try? self?.startListening()
+                Task { @MainActor in self?.isProcessing = false }
+            }
+        }
+
+        // Hard reset after a move is successfully made in the WebView
+        NotificationCenter.default.addObserver(forName: NSNotification.Name("ClearMoveUI"), object: nil, queue: .main) { _ in
+            self.hardResetAfterMove()
+        }
+    }
+
     func requestPermissions() async {
         await SFSpeechRecognizer.requestAuthorization { _ in }
         await AVAudioSession.sharedInstance().requestRecordPermission { _ in }
     }
 
-    // MARK: - Start Listening
     func startListening() throws {
-
         stopListening()
-
-        transcript = ""
-        piece = "none"
-        move = "none"
-
+        isProcessing = false
+        
         let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord,
-                                     mode: .videoChat, // 'videoChat' has better quality than 'measurement' or 'voiceChat'
-                                     options: [.defaultToSpeaker, .allowBluetooth, .mixWithOthers])
+        try audioSession.setCategory(.playAndRecord, mode: .videoChat, options: [.defaultToSpeaker, .mixWithOthers])
         try audioSession.setActive(true)
         
         request = SFSpeechAudioBufferRecognitionRequest()
@@ -43,9 +57,8 @@ class SpeechChessViewModel: ObservableObject {
 
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
-
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) {
-            buffer, _ in
+        inputNode.removeTap(onBus: 0)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             self.request?.append(buffer)
         }
 
@@ -53,60 +66,68 @@ class SpeechChessViewModel: ObservableObject {
         try audioEngine.start()
 
         task = recognizer?.recognitionTask(with: request!) { result, error in
-            guard let result = result else { return }
+            if self.isProcessing || TextToSpeechManager.shared.synthesizer.isSpeaking {
+                self.transcript = ""
+                return
+            }
 
+            guard let result = result else { return }
             let text = result.bestTranscription.formattedString.lowercased()
             self.transcript = text
-            self.parseChess(from: text)
+            self.parseSpeech(text)
         }
     }
 
-    // MARK: - Stop
+    private func parseSpeech(_ text: String) {
+        let replacements = ["night": "knight", "nite": "knight", "ponde": "pawn", "ha": "h8", "to": " "]
+        var normalized = text
+        for (k, v) in replacements { normalized = normalized.replacingOccurrences(of: k, with: v) }
+
+        let piecesList = ["pawn", "knight", "bishop", "rook", "queen", "king"]
+        let foundPiece = piecesList.last(where: { normalized.contains($0) }) ?? "none"
+        
+        var foundSquare = "none"
+        let files = "abcdefgh", ranks = "12345678"
+        for f in files {
+            for r in ranks {
+                let sq = "\(f)\(r)"
+                if normalized.contains(sq) { foundSquare = sq }
+            }
+        }
+
+        self.piece = foundPiece
+        self.move = foundSquare
+
+        // Handoff to ChessGameManager
+        if foundPiece != "none" && foundSquare != "none" && !isProcessing {
+            if let cmd = ChessGameManager.shared.createMoveCommand(
+                piece: foundPiece,
+                square: foundSquare,
+                isWhite: isPlayingWhite
+            ) {
+                self.isProcessing = true
+                self.pendingMoveCommand = cmd
+            }
+        }
+    }
+
+    func hardResetAfterMove() {
+        stopListening()
+        self.transcript = ""
+        self.piece = "none"
+        self.move = "none"
+        self.pendingMoveCommand = nil
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            try? self.startListening()
+        }
+    }
+
     func stopListening() {
         audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
         request?.endAudio()
         task?.cancel()
-    }
-
-    // MARK: - Chess Parsing
-    private func parseChess(from text: String) {
-
-        // Normalize speech quirks
-        let replacements: [String: String] = [
-            "night": "knight",
-            "nite": "knight",
-            "ponde": "pawn",
-            "rookie": "rook",
-            "to": " ",
-            "two": "2",
-            "for": "4",
-            "ha" : "h8"
-        ]
-
-        var normalized = text
-        for (k, v) in replacements {
-            normalized = normalized.replacingOccurrences(of: k, with: v)
-        }
-
-        // Detect piece
-        let pieces = ["pawn", "knight", "bishop", "rook", "queen", "king"]
-        piece = pieces.first(where: { normalized.contains($0) }) ?? "none"
-
-        // Detect square (a1–h8)
-        let files = "abcdefgh"
-        let ranks = "12345678"
-
-        for f in files {
-            for r in ranks {
-                let square = "\(f)\(r)"
-                if normalized.contains(square) {
-                    move = square
-                    return
-                }
-            }
-        }
-
-        move = "none"
+        task = nil
     }
 }

@@ -16,6 +16,9 @@
 		BDBC98092F0C363900988568 /* ChessEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDBC98082F0C363900988568 /* ChessEngine.swift */; };
 		BDBC980D2F0C394E00988568 /* ContentViewtxt.rtf in Resources */ = {isa = PBXBuildFile; fileRef = BDBC980C2F0C394E00988568 /* ContentViewtxt.rtf */; };
 		BDBC980F2F0EA20E00988568 /* TextToSpeechManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDBC980E2F0EA20E00988568 /* TextToSpeechManager.swift */; };
+		BDBC98112F0EE8F500988568 /* ChessGameManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDBC98102F0EE8F500988568 /* ChessGameManager.swift */; };
+		BDBC98132F0EE91C00988568 /* ChessJSBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDBC98122F0EE91C00988568 /* ChessJSBridge.swift */; };
+		BDBC98152F0EEA8C00988568 /* ChessModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDBC98142F0EEA8C00988568 /* ChessModels.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +32,9 @@
 		BDBC98082F0C363900988568 /* ChessEngine.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ChessEngine.swift; sourceTree = "<group>"; };
 		BDBC980C2F0C394E00988568 /* ContentViewtxt.rtf */ = {isa = PBXFileReference; lastKnownFileType = text.rtf; name = ContentViewtxt.rtf; path = "../../../../.Trash/Blind Chess 1.08.10 PM/Blind Chess/Blind Chess/ContentViewtxt.rtf"; sourceTree = "<group>"; };
 		BDBC980E2F0EA20E00988568 /* TextToSpeechManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextToSpeechManager.swift; sourceTree = "<group>"; };
+		BDBC98102F0EE8F500988568 /* ChessGameManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessGameManager.swift; sourceTree = "<group>"; };
+		BDBC98122F0EE91C00988568 /* ChessJSBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessJSBridge.swift; sourceTree = "<group>"; };
+		BDBC98142F0EEA8C00988568 /* ChessModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessModels.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,8 +71,11 @@
 				BDBC97F82F0C351B00988568 /* ContentView.swift */,
 				BDBC98042F0C355700988568 /* SpeechChessViewModel.swift */,
 				BDBC98062F0C356B00988568 /* ChessComWebView.swift */,
+				BDBC98102F0EE8F500988568 /* ChessGameManager.swift */,
+				BDBC98122F0EE91C00988568 /* ChessJSBridge.swift */,
 				BDBC980E2F0EA20E00988568 /* TextToSpeechManager.swift */,
 				BDBC98082F0C363900988568 /* ChessEngine.swift */,
+				BDBC98142F0EEA8C00988568 /* ChessModels.swift */,
 				BDBC980C2F0C394E00988568 /* ContentViewtxt.rtf */,
 				BDBC97FA2F0C351C00988568 /* Assets.xcassets */,
 				BDBC97FC2F0C351C00988568 /* Preview Content */,
@@ -154,10 +163,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				BDBC98052F0C355700988568 /* SpeechChessViewModel.swift in Sources */,
+				BDBC98152F0EEA8C00988568 /* ChessModels.swift in Sources */,
 				BDBC98092F0C363900988568 /* ChessEngine.swift in Sources */,
 				BDBC97F92F0C351B00988568 /* ContentView.swift in Sources */,
+				BDBC98112F0EE8F500988568 /* ChessGameManager.swift in Sources */,
 				BDBC980F2F0EA20E00988568 /* TextToSpeechManager.swift in Sources */,
 				BDBC98072F0C356B00988568 /* ChessComWebView.swift in Sources */,
+				BDBC98132F0EE91C00988568 /* ChessJSBridge.swift in Sources */,
 				BDBC97F72F0C351B00988568 /* Blind_ChessApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
