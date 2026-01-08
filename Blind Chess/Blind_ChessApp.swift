@@ -3,7 +3,7 @@
 import SwiftUI
 
 @main
-struct TranscriberApp: App {
+struct Blind_ChessApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

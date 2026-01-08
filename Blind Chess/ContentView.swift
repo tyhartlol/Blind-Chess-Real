@@ -22,7 +22,7 @@ struct ContentView: View {
             VStack(alignment: .leading) {
                 
                 
-                Text(vm.transcript.isEmpty ? "Listening..." : vm.transcript)
+                Text(vm.transcript.isEmpty ? "Listening... Hello" : vm.transcript)
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.gray.opacity(0.15))
