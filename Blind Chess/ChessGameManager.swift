@@ -7,7 +7,7 @@ class ChessGameManager {
     private var lastBoard: [[String]]?
     private var lastIsFlipped: Bool = false
 
-    // 🚀 Coordinate Conversion & Move Creation
+    // MARK: - Move Creation
     func createMoveCommand(piece: String, square: String, isWhite: Bool) -> ChessMove? {
         let pieceMapping: [String: String] = [
             "pawn": isWhite ? "P" : "p",
@@ -22,7 +22,6 @@ class ChessGameManager {
               let targetSquare = notationToSquare(square) else {
             return nil
         }
-
         return ChessMove(from: "FIND:\(pieceChar)", to: targetSquare)
     }
 
@@ -35,60 +34,93 @@ class ChessGameManager {
         return "\(f)\(r)"
     }
 
-    // 🚀 Move Processing
+    // MARK: - Move Processing
     func processMove(_ move: ChessMove, webView: WKWebView, coordinator: ChessComWebView.Coordinator, updateSide: @escaping (Bool) -> Void) {
+        print("♟️ Manager Processing: \(move.from) to \(move.to)")
+        
         fetchCurrentBoardState(webView: webView) { state in
-            guard let state = state else { return }
+            guard let state = state else {
+                print("❌ Failed to fetch board state")
+                return
+            }
             let currentSideIsWhite = !state.isFlipped
             updateSide(currentSideIsWhite)
-            
-            var finalFrom: String? = nil
             let targetInt = Int(move.to) ?? 0
 
-            if move.from.contains("FIND:") {
-                let pieceName = move.from.replacingOccurrences(of: "FIND:", with: "")
-                finalFrom = self.findLegalPiece(piece: pieceName, target: targetInt, state: state)
-            } else {
-                finalFrom = move.from
-            }
+            if move.from.hasPrefix("FIND:") {
+                let pieceChar = move.from.replacingOccurrences(of: "FIND:", with: "")
+                let candidates = self.findAllLegalPieces(piece: pieceChar, target: targetInt, state: state)
+                
+                print("📍 Candidates Found: \(candidates)")
 
-            if let from = finalFrom {
-                let player = currentSideIsWhite ? "White" : "Black"
-                self.announceMove(player: player, isUser: true, pieceCode: move.from, fromSquare: from, targetSquare: move.to)
-                coordinator.executeRawMove(from: from, to: move.to, isWhite: currentSideIsWhite)
-            } else {
-                TextToSpeechManager.shared.speak("No legal \(move.from) can reach \(move.to)")
-                NotificationCenter.default.post(name: NSNotification.Name("ClearMoveUI"), object: nil)
+                if candidates.count > 1 {
+                    let pieceName = self.getPieceName(pieceChar)
+                    TextToSpeechManager.shared.speak("Multiple \(pieceName)s can reach \(self.toNotation(move.to)). From which file or rank?")
+                    
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: NSNotification.Name("RequireDisambiguation"), object: ["target": move.to, "piece": pieceChar])
+                    }
+                } else if candidates.count == 1 {
+                    self.executeValidatedMove(from: candidates[0], move: move, currentSideIsWhite: currentSideIsWhite, coordinator: coordinator)
+                } else {
+                    TextToSpeechManager.shared.speak("No legal \(self.getPieceName(pieceChar)) can reach \(self.toNotation(move.to))")
+                    NotificationCenter.default.post(name: NSNotification.Name("ClearMoveUI"), object: nil)
+                }
+            } else if move.from.hasPrefix("FILTER:") {
+                let parts = move.from.components(separatedBy: ":")
+                let pieceChar = parts[1]
+                let modifier = parts[2]
+                
+                let candidates = self.findAllLegalPieces(piece: pieceChar, target: targetInt, state: state)
+                let filtered = candidates.first { $0.contains(modifier) }
+                
+                if let from = filtered {
+                    self.executeValidatedMove(from: from, move: move, currentSideIsWhite: currentSideIsWhite, coordinator: coordinator)
+                } else {
+                    TextToSpeechManager.shared.speak("I couldn't find that piece there.")
+                    NotificationCenter.default.post(name: NSNotification.Name("ClearMoveUI"), object: nil)
+                }
             }
         }
     }
 
-    private func findLegalPiece(piece: String, target: Int, state: ChessEngine.GameState) -> String? {
+    private func executeValidatedMove(from: String, move: ChessMove, currentSideIsWhite: Bool, coordinator: ChessComWebView.Coordinator) {
+        print("✅ Executing Move from \(from) to \(move.to)")
+        let player = currentSideIsWhite ? "White" : "Black"
+        self.announceMove(player: player, isUser: true, pieceCode: move.from, fromSquare: from, targetSquare: move.to)
+        coordinator.executeRawMove(from: from, to: move.to, isWhite: currentSideIsWhite)
+    }
+
+    private func findAllLegalPieces(piece: String, target: Int, state: ChessEngine.GameState) -> [String] {
+        var found = [String]()
         for r in 0...7 {
             for c in 0...7 {
                 if state.board[r][c] == piece {
                     let currentSquare = (c + 1) * 10 + (8 - r)
                     if engine.isMoveLegal(state: state, piece: piece, start: currentSquare, end: target) {
-                        return "\(currentSquare)"
+                        found.append("\(currentSquare)")
                     }
                 }
             }
         }
-        return nil
+        return found
+    }
+
+    // MARK: - Helper Methods
+    func toNotation(_ sq: String) -> String {
+        let files = ["", "a", "b", "c", "d", "e", "f", "g", "h"]
+        guard sq.count == 2, let fIndex = Int(String(sq.first!)), fIndex < files.count else { return sq }
+        return "\(files[fIndex])\(sq.last!)"
+    }
+
+    func getPieceName(_ code: String) -> String {
+        let pieceNames = ["p":"Pawn", "r":"Rook", "n":"Knight", "b":"Bishop", "q":"Queen", "k":"King"]
+        return pieceNames[code.lowercased()] ?? "Piece"
     }
 
     func announceMove(player: String, isUser: Bool, pieceCode: String, fromSquare: String, targetSquare: String) {
-        let code = pieceCode.replacingOccurrences(of: "FIND:", with: "").lowercased()
-        let pieceNames = ["p":"Pawn", "r":"Rook", "n":"Knight", "b":"Bishop", "q":"Queen", "k":"King"]
-        let pieceName = pieceNames[code] ?? "Piece"
-        
-        let files = ["", "a", "b", "c", "d", "e", "f", "g", "h"]
-        let toNotation = { (sq: String) -> String in
-            guard sq.count == 2 else { return sq }
-            let f = Int(String(sq.first!)) ?? 0
-            return "\(files[f])\(sq.last!)"
-        }
-        
+        let code = pieceCode.replacingOccurrences(of: "FIND:", with: "").replacingOccurrences(of: "FILTER:", with: "").components(separatedBy: ":").first ?? "p"
+        let pieceName = getPieceName(code)
         let prefix = isUser ? "You moved" : "\(player) moved"
         TextToSpeechManager.shared.speak("\(prefix) \(pieceName) from \(toNotation(fromSquare)) to \(toNotation(targetSquare))")
     }
@@ -120,7 +152,6 @@ class ChessGameManager {
 
     private func detectMove(oldBoard: [[String]], newBoard: [[String]], isFlipped: Bool) {
         var fromSquare: String?; var toSquare: String?; var movedPiece: String?
-
         for r in 0...7 {
             for c in 0...7 {
                 let old = oldBoard[r][c]; let new = newBoard[r][c]
@@ -129,11 +160,9 @@ class ChessGameManager {
                 else if old != new && new != "" { toSquare = squareStr }
             }
         }
-
         if let piece = movedPiece, let from = fromSquare, let to = toSquare {
             let isWhitePiece = piece == piece.uppercased()
-            let userIsWhite = !isFlipped
-            if isWhitePiece != userIsWhite {
+            if isWhitePiece != (!isFlipped) {
                 self.announceMove(player: isWhitePiece ? "White" : "Black", isUser: false, pieceCode: piece, fromSquare: from, targetSquare: to)
             }
         }
