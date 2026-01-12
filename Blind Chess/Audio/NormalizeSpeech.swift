@@ -1,64 +1,57 @@
-//import Foundation
-//import Speech
-//
-//struct NormalizeSpeech {
-//    
-//    static func generateChessModel() async -> URL? {
-//        let fileManager = FileManager.default
-//        
-//        // Switch to Documents directory for better cross-process access
-//        guard let docsDir = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
-//            return nil
-//        }
-//        
-//        // Use a simple name without subdirectories to reduce complexity
-//        let url = docsDir.appendingPathComponent("ChessMoves.lmdata")
-//
-//        do {
-//            if fileManager.fileExists(atPath: url.path) {
-//                try fileManager.removeItem(at: url)
-//            }
-//            
-//            let modelData = SFCustomLanguageModelData(
-//                locale: Locale(identifier: "en-US"),
-//                identifier: "com.chess.voice",
-//                version: "1.0"
-//            ) {
-//                let pieces = ["Pawn", "Knight", "Bishop", "Rook", "Queen", "King"]
-//                for piece in pieces { SFCustomLanguageModelData.PhraseCount(phrase: piece, count: 10) }
-//                
-//                for f in ["a", "b", "c", "d", "e", "f", "g", "h"] {
-//                    for r in 1...8 { SFCustomLanguageModelData.PhraseCount(phrase: "\(f)\(r)", count: 20) }
-//                }
-//            }
-//
-//            try await modelData.export(to: url)
-//            
-//            // Give the OS a heartbeat to register the file on disk
-//            try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-//            
-//            print("Model successfully exported to: \(url.path)")
-//            return url
-//        } catch {
-//            print("Export error: \(error)")
-//            return nil
-//        }
-//    }
-//
-//    static func formatMove(rawText: String) -> (piece: String, move: String) {
-//        let text = rawText.lowercased()
-//        var piece = "None"
-//        var move = "None"
-//        
-//        let pieces = ["pawn", "knight", "bishop", "rook", "queen", "king"]
-//        if let foundPiece = pieces.first(where: { text.contains($0) }) {
-//            piece = foundPiece.capitalized
-//        }
-//        
-//        if let range = text.range(of: "[a-h][1-8]", options: .regularExpression) {
-//            move = String(text[range])
-//        }
-//        
-//        return (piece, move)
-//    }
-//}
+import Foundation
+import Combine
+
+class NormalizeSpeech: ObservableObject {
+    @Published var firstPiece: String = "None"
+    
+    private var lastProcessedLength = 0
+    private var hasFoundFirstPiece = false
+    private var cancellables = Set<AnyCancellable>()
+    private let chessPieces = ["pawn", "knight", "bishop", "rook", "queen", "king"]
+
+    init() {
+        // 1. Watch the transcript for the "First Piece" logic
+        SpeechRecognizer.shared.$transcript
+            .receive(on: RunLoop.main)
+            .sink { [weak self] newTranscript in
+                self?.processTranscript(newTranscript)
+            }
+            .store(in: &cancellables)
+            
+        // 2. IMPORTANT: Automatically reset when the transcript is cleared or recording stops
+        SpeechRecognizer.shared.$transcript
+            .filter { $0.isEmpty }
+            .sink { [weak self] _ in
+                self?.reset()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func processTranscript(_ fullTranscript: String) {
+        // If empty, reset and wait
+        if fullTranscript.isEmpty {
+            reset()
+            return
+        }
+        
+        // If we already found the first piece for this specific session, stop looking
+        guard !hasFoundFirstPiece else { return }
+
+        let words = fullTranscript.lowercased().components(separatedBy: .whitespacesAndNewlines)
+
+        if let foundWord = words.first(where: { word in
+            chessPieces.contains { piece in word.contains(piece) }
+        }) {
+            self.hasFoundFirstPiece = true
+            self.firstPiece = foundWord
+            print("Found first piece of this session: \(foundWord)")
+        }
+    }
+
+    func reset() {
+        lastProcessedLength = 0
+        hasFoundFirstPiece = false
+        // We don't necessarily clear firstPiece here so it stays on screen
+        // until the NEXT piece is found, but you can set to "None" if preferred.
+    }
+}

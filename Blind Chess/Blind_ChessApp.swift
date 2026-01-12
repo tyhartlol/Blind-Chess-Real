@@ -7,6 +7,7 @@ struct Blind_ChessApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(SpeechRecognizer.shared)
         }
     }
 }
