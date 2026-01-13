@@ -45,18 +45,28 @@ struct ChessComWebView: UIViewRepresentable {
         }
 
         func detectMove(old: [[String]], new: [[String]]) {
-            var f = "", t = "", p = ""
+            var fromStr = "", toStr = "", movedPiece = ""
+
             for r in 0...7 {
                 for c in 0...7 {
-                    if !old[r][c].isEmpty && new[r][c].isEmpty {
-                        f = ChessGameManager.shared.indicesToNotation(row: r, col: c); p = old[r][c]
-                    } else if !new[r][c].isEmpty && old[r][c] != new[r][c] {
-                        t = ChessGameManager.shared.indicesToNotation(row: r, col: c)
+                    let oldP = old[r][c], newP = new[r][c]
+                    if !oldP.isEmpty && newP.isEmpty {
+                        fromStr = ChessGameManager.shared.indicesToNotation(row: r, col: c)
+                        movedPiece = oldP
+                    } else if !newP.isEmpty && oldP != newP {
+                        toStr = ChessGameManager.shared.indicesToNotation(row: r, col: c)
                     }
                 }
             }
-            if !p.isEmpty && !f.isEmpty && !t.isEmpty {
-                ChessGameManager.shared.updateLastMove(piece: p, from: f, to: t)
+
+            if !movedPiece.isEmpty && !fromStr.isEmpty && !toStr.isEmpty {
+                // Updated call to pass all move details
+                ChessGameManager.shared.updateTurn(
+                    piece: movedPiece,
+                    from: fromStr,
+                    to: toStr,
+                    isWhitePlayer: parent.isPlayingWhite
+                )
             }
         }
 
