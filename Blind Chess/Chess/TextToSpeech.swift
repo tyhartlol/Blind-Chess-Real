@@ -4,11 +4,10 @@ import AVFoundation
 class TextToSpeechManager: NSObject, AVSpeechSynthesizerDelegate {
     static let shared = TextToSpeechManager()
     let synthesizer = AVSpeechSynthesizer()
+    
     var onSpeechStatusChanged: ((Bool) -> Void)?
     
-    // The list to hold pending speech strings
     private var speechQueue: [String] = []
-    // Tracks if we are currently mid-speech to avoid overlapping
     private var isProcessingQueue = false
 
     override init() {
@@ -16,18 +15,13 @@ class TextToSpeechManager: NSObject, AVSpeechSynthesizerDelegate {
         synthesizer.delegate = self
     }
 
-    /// Public function to add text to the queue
     func queueSpeak(_ text: String) {
         speechQueue.append(text)
-        print("📢 Queued: \(text) (Total in queue: \(speechQueue.count))")
-        
-        // If not already speaking, start the process
         if !isProcessingQueue {
             processNextInQueue()
         }
     }
 
-    /// Internal helper to pull the next string and speak it
     private func processNextInQueue() {
         guard !speechQueue.isEmpty else {
             isProcessingQueue = false
@@ -35,7 +29,7 @@ class TextToSpeechManager: NSObject, AVSpeechSynthesizerDelegate {
         }
 
         isProcessingQueue = true
-        let nextText = speechQueue.first! // Get the first item
+        let nextText = speechQueue.first!
         speak(nextText)
     }
 
@@ -45,37 +39,43 @@ class TextToSpeechManager: NSObject, AVSpeechSynthesizerDelegate {
         utterance.rate = 0.5
 
         let session = AVAudioSession.sharedInstance()
-        // Note: .playback is often more reliable for TTS than .videoChat unless you need the mic simultaneously
-        try? session.setCategory(.playAndRecord, mode: .videoChat, options: [.defaultToSpeaker])
-        try? session.setActive(true)
+        do {
+            // .mixWithOthers prevents the mic from killing the speaker
+            try session.setCategory(.playAndRecord, mode: .videoChat, options: [.defaultToSpeaker, .mixWithOthers])
+            try session.setActive(true)
+        } catch {
+            print("❌ TTS Session Error: \(error)")
+        }
 
-        // Note: Removed stopSpeaking(at: .immediate) here so it doesn't kill the queue flow
         synthesizer.speak(utterance)
     }
 
     // MARK: - AVSpeechSynthesizerDelegate
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
+        print("📢 Start Speaking: \(utterance.speechString)")
         onSpeechStatusChanged?(true)
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        print("Done Speaking: \(utterance.speechString)")
+        print("✅ Done Speaking: \(utterance.speechString)")
         
-        // 1. Remove the item that just finished
         if !speechQueue.isEmpty {
             speechQueue.removeFirst()
         }
         
-        // 2. Notify system
-        onSpeechStatusChanged?(false)
-        
-        // 3. Move to next item
-        processNextInQueue()
+        // ONLY signal Mic On (false) if there are no more sentences waiting
+        if speechQueue.isEmpty {
+            isProcessingQueue = false
+            onSpeechStatusChanged?(false)
+        } else {
+            // Immediately start the next move announcement
+            processNextInQueue()
+        }
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
-        isProcessingQueue = false
         onSpeechStatusChanged?(false)
+        isProcessingQueue = false
     }
 }

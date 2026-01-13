@@ -7,40 +7,56 @@ struct ContentView: View {
     @State private var isRecording = false
 
     var body: some View {
-        VStack(spacing: 15) {
+        VStack(spacing: 20) {
             VStack {
-                Text(normalizer.text)
-                    .font(.system(.title3, design: .monospaced))
-                    .bold()
-                Text(recognizer.transcript.isEmpty ? "Microphone Standby" : recognizer.transcript)
+                Text(normalizer.text).font(.headline).padding(.top)
+                Text(isRecording ? "Listening..." : "Mic Paused")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(isRecording ? .green : .red)
             }
-            .padding(.top)
 
             ChessComWebView(url: URL(string: "https://www.chess.com/play/computer")!, isPlayingWhite: $isPlayingWhite, normalizer: normalizer)
-                .cornerRadius(12)
-                .padding(.horizontal)
+                .cornerRadius(12).padding(.horizontal)
 
             Button(action: {
                 isRecording.toggle()
-                if isRecording {
-                    SpeechRecognizer.shared.startTranscribing()
-                } else {
-                    SpeechRecognizer.shared.stopTranscribing()
-                }
             }) {
                 HStack {
-                    Image(systemName: isRecording ? "stop.fill" : "mic.fill")
-                    Text(isRecording ? "Listening" : "Start Voice")
+                    Image(systemName: isRecording ? "mic.fill" : "mic.slash.fill")
+                    Text(isRecording ? "Stop Mic" : "Start Mic")
                 }
-                .font(.headline)
+                .bold()
                 .frame(width: 200, height: 50)
                 .background(isRecording ? Color.red : Color.blue)
                 .foregroundColor(.white)
-                .clipShape(Capsule())
+                .cornerRadius(10)
             }
-            .padding(.bottom)
+        }
+        // Modern iOS 17+ Syntax
+        .onChange(of: isRecording) { oldValue, newValue in
+            if newValue {
+                SpeechRecognizer.shared.startTranscribing()
+            } else {
+                SpeechRecognizer.shared.stopTranscribing()
+            }
+        }
+        .onAppear {
+            TextToSpeechManager.shared.onSpeechStatusChanged = { isSpeaking in
+                DispatchQueue.main.async {
+                    if isSpeaking {
+                        // Kill mic immediately when speech starts
+                        self.isRecording = false
+                    } else {
+                        // Wait 0.7s after speech ends to avoid the echo/feedback loop
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                            // Final check: Only turn mic on if the queue didn't get a new move
+                            if !TextToSpeechManager.shared.synthesizer.isSpeaking {
+                                self.isRecording = true
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -28,6 +28,7 @@ class ChessGameManager {
             if p != "None" && s != "None" {
                 print("🕹️ Turn Active: Processing User Move [\(p) to \(s)]")
                 
+                
                 webView.evaluateJavaScript(ChessJSBridge.scrapeScript()) { result, _ in
                     guard let dict = result as? [String: Any],
                           let board = dict["board"] as? [[String]],
