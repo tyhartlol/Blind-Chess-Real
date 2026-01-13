@@ -1,61 +1,72 @@
-//import SwiftUI
-//import WebKit
-//
-//struct ChessComWebView: UIViewRepresentable {
-//    let url: URL
-//    @Binding var moveCommand: ChessMove?
-//    @Binding var isPlayingWhite: Bool
-//
-//    func makeUIView(context: Context) -> WKWebView {
-//        let config = WKWebViewConfiguration()
-//        config.allowsInlineMediaPlayback = true
-//        let webView = WKWebView(frame: .zero, configuration: config)
-//        webView.navigationDelegate = context.coordinator
-//        context.coordinator.webView = webView
-//        webView.load(URLRequest(url: url))
-//        return webView
-//    }
-//
-//    func updateUIView(_ uiView: WKWebView, context: Context) {
-//        if let move = moveCommand {
-//            ChessGameManager.shared.processMove(move, webView: uiView, coordinator: context.coordinator) { newSide in
-//                DispatchQueue.main.async {
-//                    self.isPlayingWhite = newSide
-//                    // This triggers the reset in the ViewModel
-//                    NotificationCenter.default.post(name: NSNotification.Name("ClearMoveUI"), object: nil)
-//                }
-//            }
-//            DispatchQueue.main.async { moveCommand = nil }
-//        }
-//    }
-//
-//    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-//
-//    class Coordinator: NSObject, WKNavigationDelegate {
-//        var parent: ChessComWebView
-//        weak var webView: WKWebView?
-//        var detectionTimer: Timer?
-//        
-//        init(parent: ChessComWebView) { self.parent = parent }
-//        
-//        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-//            webView.evaluateJavaScript(ChessJSBridge.injectionScript())
-//            startMonitoring()
-//        }
-//
-//        func startMonitoring() {
-//            detectionTimer?.invalidate()
-//            detectionTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-//                guard let web = self.webView else { return }
-//                ChessGameManager.shared.monitorBoardChanges(webView: web)
-//            }
-//        }
-//
-//        func executeRawMove(from: String, to: String, isWhite: Bool) {
-//            let moveJS = ChessJSBridge.moveScript(from: from, to: to, isWhite: isWhite)
-//            webView?.evaluateJavaScript(moveJS) { _, error in
-//                if let error = error { print("⚠️ JS ERROR: \(error.localizedDescription)") }
-//            }
-//        }
-//    }
-//}
+import SwiftUI
+import WebKit
+
+struct ChessComWebView: UIViewRepresentable {
+    let url: URL
+    @Binding var isPlayingWhite: Bool
+    @ObservedObject var normalizer: NormalizeSpeech
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.navigationDelegate = context.coordinator
+        
+        // Inject your CSS cleanup script on load
+        let script = WKUserScript(source: ChessJSBridge.injectionScript(), injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        webView.configuration.userContentController.addUserScript(script)
+        
+        webView.load(URLRequest(url: url))
+        ChessGameManager.shared.start(webView: webView, coordinator: context.coordinator, speech: normalizer, isWhite: isPlayingWhite)
+        return webView
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
+
+    class Coordinator: NSObject, WKNavigationDelegate {
+        var parent: ChessComWebView
+        var previousBoard: [[String]]?
+        var webView: WKWebView?
+
+        init(_ parent: ChessComWebView) { self.parent = parent }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            self.webView = webView
+            Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+                webView.evaluateJavaScript(ChessJSBridge.scrapeScript()) { result, _ in
+                    guard let dict = result as? [String: Any], let board = dict["board"] as? [[String]] else { return }
+                    if let old = self.previousBoard, old != board {
+                        self.detectMove(old: old, new: board)
+                    }
+                    self.previousBoard = board
+                }
+            }
+        }
+
+        func detectMove(old: [[String]], new: [[String]]) {
+            var f = "", t = "", p = ""
+            for r in 0...7 {
+                for c in 0...7 {
+                    if !old[r][c].isEmpty && new[r][c].isEmpty {
+                        f = ChessGameManager.shared.indicesToNotation(row: r, col: c); p = old[r][c]
+                    } else if !new[r][c].isEmpty && old[r][c] != new[r][c] {
+                        t = ChessGameManager.shared.indicesToNotation(row: r, col: c)
+                    }
+                }
+            }
+            if !p.isEmpty && !f.isEmpty && !t.isEmpty {
+                ChessGameManager.shared.updateLastMove(piece: p, from: f, to: t)
+            }
+        }
+
+        func executeMoveScript(from: String, to: String, isWhite: Bool) {
+            // This pulls the string from your working function
+            let script = ChessJSBridge.moveScript(from: from, to: to, isWhite: isWhite)
+            webView?.evaluateJavaScript(script) { result, error in
+                if let error = error { print("❌ JS Error: \(error)") }
+                if let result = result { print("✅ JS Result: \(result)") }
+            }
+        }
+    }
+}

@@ -1,68 +1,46 @@
 import SwiftUI
-import Foundation
 
 struct ContentView: View {
-    // Shared instances ensure everyone is looking at the same data
-    @ObservedObject var recognizer = SpeechRecognizer.shared
     @StateObject private var normalizer = NormalizeSpeech()
-    
+    @ObservedObject var recognizer = SpeechRecognizer.shared
+    @State private var isPlayingWhite: Bool = true
     @State private var isRecording = false
 
     var body: some View {
-        VStack(spacing: 30) {
-            VStack(spacing: 10) {
-                Text("Detected Piece")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                
-                Text(normalizer.firstPiece.capitalized)
-                    .font(.system(size: 48, weight: .bold, design: .monospaced))
-                    .foregroundColor(.blue)
-            }
-            .padding(40)
-            .background(Circle().fill(Color.blue.opacity(0.05)))
-
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Live Transcript")
+        VStack(spacing: 15) {
+            VStack {
+                Text(normalizer.text)
+                    .font(.system(.title3, design: .monospaced))
+                    .bold()
+                Text(recognizer.transcript.isEmpty ? "Microphone Standby" : recognizer.transcript)
                     .font(.caption)
                     .foregroundColor(.secondary)
-                
-                ScrollView {
-                    Text(recognizer.transcript)
-                        .font(.body)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding()
-                .frame(maxHeight: 200)
-                .background(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.2)))
             }
+            .padding(.top)
+
+            ChessComWebView(url: URL(string: "https://www.chess.com/play/computer")!, isPlayingWhite: $isPlayingWhite, normalizer: normalizer)
+                .cornerRadius(12)
+                .padding(.horizontal)
 
             Button(action: {
                 isRecording.toggle()
                 if isRecording {
-                    // Start fresh
-                    recognizer.transcript = ""
-                    normalizer.reset()
-                    recognizer.startTranscribing()
+                    SpeechRecognizer.shared.startTranscribing()
                 } else {
-                    recognizer.stopTranscribing()
-                    // Reset normalizer logic for the next session
-                    normalizer.reset()
+                    SpeechRecognizer.shared.stopTranscribing()
                 }
             }) {
                 HStack {
                     Image(systemName: isRecording ? "stop.fill" : "mic.fill")
-                    Text(isRecording ? "Stop Recording" : "Start Recording")
+                    Text(isRecording ? "Listening" : "Start Voice")
                 }
                 .font(.headline)
-                .foregroundColor(.white)
-                .padding(.vertical, 16)
-                .frame(maxWidth: .infinity)
+                .frame(width: 200, height: 50)
                 .background(isRecording ? Color.red : Color.blue)
-                .cornerRadius(15)
+                .foregroundColor(.white)
+                .clipShape(Capsule())
             }
-            .shadow(radius: isRecording ? 0 : 5)
+            .padding(.bottom)
         }
-        .padding(30)
     }
 }
