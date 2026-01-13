@@ -57,6 +57,7 @@
 			children = (
 				BDBC98042F0C355700988568 /* VoiceControl.swift */,
 				BDB6AFB12F13573200DEC6D4 /* NormalizeSpeech.swift */,
+				BDBC980E2F0EA20E00988568 /* TextToSpeech.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
@@ -104,7 +105,6 @@
 			isa = PBXGroup;
 			children = (
 				BDBC98102F0EE8F500988568 /* ChessGameManager.swift */,
-				BDBC980E2F0EA20E00988568 /* TextToSpeech.swift */,
 				BDBC98122F0EE91C00988568 /* ChessJSBridge.swift */,
 				BDBC98062F0C356B00988568 /* ChessComWebView.swift */,
 				BDBC98142F0EEA8C00988568 /* ChessModels.swift */,
