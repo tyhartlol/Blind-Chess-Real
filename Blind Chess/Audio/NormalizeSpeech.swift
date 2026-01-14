@@ -8,6 +8,7 @@ class NormalizeSpeech: ObservableObject {
     // Internal state tracking
     @Published var firstPiece: String = "None"
     @Published var firstSquare: String = "None"
+    
     private var hasFoundFirstPiece = false
     private var hasFoundFirstSquare = false
     private var cancellables = Set<AnyCancellable>()
@@ -18,7 +19,9 @@ class NormalizeSpeech: ObservableObject {
         "alpha": "a", "alfa": "a", "bravo": "b", "charlie": "c", "delta": "d",
         "echo": "e", "foxtrot": "f", "golf": "g", "hotel": "h",
         "night": "knight", "pond": "pawn", "born": "pawn", "porn": "pawn",
-        "look": "rook", "ha": "h8"
+        "look": "rook", "ha": "h8",
+        "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+        "six": "6", "seven": "7", "eight": "8"
     ]
 
     init() {

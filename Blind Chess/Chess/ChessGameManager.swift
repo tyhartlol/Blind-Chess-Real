@@ -21,6 +21,8 @@ class ChessGameManager {
     // Stored data for when a move is ambiguous
     private var ambiguousCandidates: [String] = []
     private var pendingTargetSquare: String = ""
+    
+    var pieceName : String = ""
 
     /// Starts the game loop heartbeat
     func start(webView: WKWebView, coordinator: ChessComWebView.Coordinator, speech: NormalizeSpeech, isWhite: Bool) {
@@ -89,8 +91,8 @@ class ChessGameManager {
                 self.ambiguousCandidates = candidates
                 self.pendingTargetSquare = targetSquare
                 
-                let pieceName = self.expandPieceName(pieceChar)
-                let msg = "More than one \(pieceName) can move to \(speech.firstSquare). From what square do you want to move?"
+                self.pieceName = self.expandPieceName(pieceChar)
+                let msg = "More than one \(self.pieceName) can move to \(speech.firstSquare). From what square do you want to move?"
                 
                 print("Stage 2 -> 4: Ambiguity detected.")
                 TextToSpeechManager.shared.queueSpeak(msg)
@@ -108,7 +110,7 @@ class ChessGameManager {
     
     private func handleAmbiguityClarification(speech: NormalizeSpeech, coordinator: ChessComWebView.Coordinator, isWhite: Bool) {
         let clarificationSquare = speech.firstSquare
-        
+        speech.text = "Starting Square of \(self.pieceName): \(clarificationSquare)"
         if clarificationSquare != "None" {
             guard let clarifiedFrom = self.notationToSquare(clarificationSquare) else {
                 speech.reset()
@@ -118,7 +120,7 @@ class ChessGameManager {
             if ambiguousCandidates.contains(clarifiedFrom) {
                 print("Stage 4 -> 3: Ambiguity Resolved.")
                 coordinator.executeMoveScript(from: clarifiedFrom, to: pendingTargetSquare, isWhite: isWhite)
-                
+
                 self.ambiguousCandidates = []
                 self.pendingTargetSquare = ""
                 speech.reset()
