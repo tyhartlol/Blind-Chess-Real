@@ -13,7 +13,6 @@ struct ChessComWebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         
-        // Inject your CSS cleanup script on load
         let script = WKUserScript(source: ChessJSBridge.injectionScript(), injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         webView.configuration.userContentController.addUserScript(script)
         
@@ -35,7 +34,24 @@ struct ChessComWebView: UIViewRepresentable {
             self.webView = webView
             Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                 webView.evaluateJavaScript(ChessJSBridge.scrapeScript()) { result, _ in
-                    guard let dict = result as? [String: Any], let board = dict["board"] as? [[String]] else { return }
+                    guard let dict = result as? [String: Any],
+                          let board = dict["board"] as? [[String]] else { return }
+
+                    // Handle both Int (0/1) and Bool formats from the scraper
+                    var detectedWhite = self.parent.isPlayingWhite
+                    if let isWhiteInt = dict["isWhiteSide"] as? Int {
+                        detectedWhite = (isWhiteInt == 1)
+                    } else if let isWhiteBool = dict["isWhiteSide"] as? Bool {
+                        detectedWhite = isWhiteBool
+                    }
+
+                    if self.parent.isPlayingWhite != detectedWhite {
+                        DispatchQueue.main.async {
+                            self.parent.isPlayingWhite = detectedWhite
+                            ChessGameManager.shared.setPlayerColor(isWhite: detectedWhite)
+                        }
+                    }
+
                     if let old = self.previousBoard, old != board {
                         self.detectMove(old: old, new: board)
                     }
@@ -46,7 +62,6 @@ struct ChessComWebView: UIViewRepresentable {
 
         func detectMove(old: [[String]], new: [[String]]) {
             var fromStr = "", toStr = "", movedPiece = ""
-
             for r in 0...7 {
                 for c in 0...7 {
                     let oldP = old[r][c], newP = new[r][c]
@@ -60,7 +75,6 @@ struct ChessComWebView: UIViewRepresentable {
             }
 
             if !movedPiece.isEmpty && !fromStr.isEmpty && !toStr.isEmpty {
-                // Updated call to pass all move details
                 ChessGameManager.shared.updateTurn(
                     piece: movedPiece,
                     from: fromStr,
@@ -71,11 +85,10 @@ struct ChessComWebView: UIViewRepresentable {
         }
 
         func executeMoveScript(from: String, to: String, isWhite: Bool) {
-            // This pulls the string from your working function
             let script = ChessJSBridge.moveScript(from: from, to: to, isWhite: isWhite)
-            webView?.evaluateJavaScript(script) { result, error in
+            print(from, to, isWhite)
+            webView?.evaluateJavaScript(script) { _, error in
                 if let error = error { print("❌ JS Error: \(error)") }
-                if let result = result { print("✅ JS Result: \(result)") }
             }
         }
     }

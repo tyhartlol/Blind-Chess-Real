@@ -37,6 +37,7 @@ class TextToSpeechManager: NSObject, AVSpeechSynthesizerDelegate {
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(identifier: "com.apple.voice.compact.en-GB.Daniel") ?? AVSpeechSynthesisVoice(language: "en-US")
         utterance.rate = 0.5
+        utterance.volume = 1.0
 
         let session = AVAudioSession.sharedInstance()
         do {

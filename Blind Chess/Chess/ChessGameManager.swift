@@ -2,153 +2,164 @@ import Foundation
 import WebKit
 import SwiftUI
 
-/// Represents the current state of the game loop
 enum GameStage {
-    case usersTurn             // Stage 1: Waiting for piece/square voice input
-    case processingUserMove    // Stage 2: Validating and executing the move
-    case awaitingClarification // Stage 4: More than one piece can move to the target
-    case opponentsTurn         // Stage 3: Waiting for the opponent to finish moving
+    case usersTurn
+    case processingUserMove
+    case awaitingClarification
+    case opponentsTurn
 }
 
 class ChessGameManager {
     static let shared = ChessGameManager()
     private let engine = ChessEngine()
     
-    // Internal State Tracking
     private var stage: GameStage = .usersTurn
     private var lastMovedColor: String = "black"
-    
-    // Stored data for when a move is ambiguous
     private var ambiguousCandidates: [String] = []
     private var pendingTargetSquare: String = ""
+    private var castlingTimeoutTimer: Timer?
+    
+    // Castling State
+    private var isAttemptingCastle: Bool = false
+    private var castleSide: String = ""
     
     var pieceName : String = ""
+    private var playerIsWhite: Bool = true
 
-    /// Starts the game loop heartbeat
     func start(webView: WKWebView, coordinator: ChessComWebView.Coordinator, speech: NormalizeSpeech, isWhite: Bool) {
+        self.playerIsWhite = isWhite
         Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            self.runEngine(webView: webView, coordinator: coordinator, speech: speech, isWhite: isWhite)
+            self.runEngine(webView: webView, coordinator: coordinator, speech: speech)
+        }
+    }
+    
+    func setPlayerColor(isWhite: Bool) {
+        if self.playerIsWhite != isWhite {
+            print("Manager Sync: Switching color to \(isWhite ? "White" : "Black")")
+            self.playerIsWhite = isWhite
         }
     }
 
-    // MARK: - Main Switchboard (The Brain)
-    
-    private func runEngine(webView: WKWebView, coordinator: ChessComWebView.Coordinator, speech: NormalizeSpeech, isWhite: Bool) {
+    private func runEngine(webView: WKWebView, coordinator: ChessComWebView.Coordinator, speech: NormalizeSpeech) {
         switch stage {
         case .usersTurn:
             handleUsersTurn(speech: speech)
-            
         case .processingUserMove:
-            executeUserMoveLogic(webView: webView, coordinator: coordinator, speech: speech, isWhite: isWhite)
-            
+            executeUserMoveLogic(webView: webView, coordinator: coordinator, speech: speech)
         case .awaitingClarification:
-            handleAmbiguityClarification(speech: speech, coordinator: coordinator, isWhite: isWhite)
-            
+            handleAmbiguityClarification(speech: speech, coordinator: coordinator)
         case .opponentsTurn:
-            // Gated until updateTurn() is called by the Scraper
-            print("Stage 3: Waiting for Opponent...")
+            break
         }
     }
 
-    // MARK: - Stage 1: User's Turn
-    
     private func handleUsersTurn(speech: NormalizeSpeech) {
-        if speech.firstPiece != "None" && speech.firstSquare != "None" {
-            print("Stage 1 -> 2: Speech detected [\(speech.firstPiece) to \(speech.firstSquare)]")
+        if (speech.firstPiece != "None" && speech.firstSquare != "None") || speech.castlingSide != "None" {
             self.stage = .processingUserMove
         }
     }
 
-    // MARK: - Stage 2: Processing and Execution
-    
-    private func executeUserMoveLogic(webView: WKWebView, coordinator: ChessComWebView.Coordinator, speech: NormalizeSpeech, isWhite: Bool) {
+    private func executeUserMoveLogic(webView: WKWebView, coordinator: ChessComWebView.Coordinator, speech: NormalizeSpeech) {
         webView.evaluateJavaScript(ChessJSBridge.scrapeScript()) { result, _ in
             guard let dict = result as? [String: Any],
-                  let board = dict["board"] as? [[String]],
-                  let isWhiteSide = dict["isWhiteSide"] as? Bool else {
-                print("⚠️ Scrape failed. Returning to Stage 1.")
+                  let board = dict["board"] as? [[String]] else {
                 self.stage = .usersTurn
                 return
             }
             
+            let isWhiteSide = (dict["isWhiteSide"] as? Int == 1) || (dict["isWhiteSide"] as? Bool == true)
             let state = ChessEngine.GameState(board: board, isFlipped: !isWhiteSide)
+
+            // --- CASTLING EXECUTION ---
+            if speech.castlingSide != "None" {
+                self.isAttemptingCastle = true
+                self.castleSide = speech.castlingSide
+                
+                let fromSq = self.playerIsWhite ? "51" : "58"
+                let toSq: String
+                if self.playerIsWhite {
+                    toSq = (speech.castlingSide == "Kingside") ? "71" : "31"
+                } else {
+                    toSq = (speech.castlingSide == "Kingside") ? "78" : "38"
+                }
+                
+                coordinator.executeMoveScript(from: fromSq, to: toSq, isWhite: self.playerIsWhite)
+                self.startCastlingTimeout(speech: speech)
+                speech.reset()
+                self.stage = .opponentsTurn
+                return
+            }
+
+            // --- STANDARD MOVE ---
             guard let targetSquare = self.notationToSquare(speech.firstSquare) else {
                 self.resetToStage1(speech: speech, message: "Invalid square")
                 return
             }
             
-            let pieceChar = self.getPieceChar(speech.firstPiece, isWhite: isWhite)
+            let pieceChar = self.getPieceChar(speech.firstPiece, isWhite: self.playerIsWhite)
             let candidates = self.findAllLegalPieces(piece: pieceChar, target: Int(targetSquare) ?? 0, state: state)
             
             if candidates.count == 1 {
-                // Stage 2a: Move Legal
-                print("Stage 2a: Move Legal. Executing.")
-                coordinator.executeMoveScript(from: candidates.first!, to: targetSquare, isWhite: isWhite)
+                coordinator.executeMoveScript(from: candidates.first!, to: targetSquare, isWhite: self.playerIsWhite)
                 speech.reset()
                 self.stage = .opponentsTurn
             } else if candidates.count > 1 {
-                // Stage 4 Transition: Ambiguity Found
                 self.ambiguousCandidates = candidates
                 self.pendingTargetSquare = targetSquare
-                
                 self.pieceName = self.expandPieceName(pieceChar)
-                let msg = "More than one \(self.pieceName) can move to \(speech.firstSquare). From what square do you want to move?"
-                
-                print("Stage 2 -> 4: Ambiguity detected.")
-                TextToSpeechManager.shared.queueSpeak(msg)
+                TextToSpeechManager.shared.queueSpeak("Multiple \(self.pieceName)s can move there. From what square?")
                 speech.reset()
                 self.stage = .awaitingClarification
             } else {
-                // Stage 2b: Not Legal
-                print("Stage 2b: No legal move found.")
-                self.resetToStage1(speech: speech, message: "Not legal move")
+                self.resetToStage1(speech: speech, message: "Illegal move")
             }
         }
     }
 
-    // MARK: - Stage 4: Clarification (Ambiguity)
-    
-    private func handleAmbiguityClarification(speech: NormalizeSpeech, coordinator: ChessComWebView.Coordinator, isWhite: Bool) {
-        let clarificationSquare = speech.firstSquare
-        speech.text = "Starting Square of \(self.pieceName): \(clarificationSquare)"
-        if clarificationSquare != "None" {
-            guard let clarifiedFrom = self.notationToSquare(clarificationSquare) else {
-                speech.reset()
-                return
-            }
-            
+    private func handleAmbiguityClarification(speech: NormalizeSpeech, coordinator: ChessComWebView.Coordinator) {
+        if speech.firstSquare != "None" {
+            guard let clarifiedFrom = self.notationToSquare(speech.firstSquare) else { return }
             if ambiguousCandidates.contains(clarifiedFrom) {
-                print("Stage 4 -> 3: Ambiguity Resolved.")
-                coordinator.executeMoveScript(from: clarifiedFrom, to: pendingTargetSquare, isWhite: isWhite)
-
-                self.ambiguousCandidates = []
-                self.pendingTargetSquare = ""
+                coordinator.executeMoveScript(from: clarifiedFrom, to: pendingTargetSquare, isWhite: self.playerIsWhite)
                 speech.reset()
                 self.stage = .opponentsTurn
             } else {
-                TextToSpeechManager.shared.queueSpeak("That piece cannot move there. Please say the starting square again.")
+                TextToSpeechManager.shared.queueSpeak("That piece cannot move there.")
                 speech.reset()
             }
         }
     }
 
-    // MARK: - Stage 3: Opponent Logic (Triggered by Observer)
-    
     func updateTurn(piece: String, from: String, to: String, isWhitePlayer: Bool) {
+        castlingTimeoutTimer?.invalidate()
+        
         let pieceColor = (piece == piece.uppercased()) ? "white" : "black"
-        let myColor = isWhitePlayer ? "white" : "black"
+        let myColor = self.playerIsWhite ? "white" : "black"
         
         if pieceColor != self.lastMovedColor {
             self.lastMovedColor = pieceColor
             let isUserMove = (pieceColor == myColor)
-            let fullPieceName = expandPieceName(piece)
-            let sentence = isUserMove ? "You moved \(fullPieceName) from \(from) to \(to)" : "\(pieceColor.capitalized) moved \(fullPieceName) from \(from) to \(to)"
+            let name = expandPieceName(piece)
+            
+            let sentence: String
+            if isUserMove && isAttemptingCastle {
+                sentence = "You castled \(castleSide)"
+                isAttemptingCastle = false
+            } else {
+                sentence = isUserMove ? "You moved \(name) to \(to)" : "\(pieceColor.capitalized) moved \(name) to \(to)"
+            }
             
             TextToSpeechManager.shared.queueSpeak(sentence)
+            if !isUserMove { self.stage = .usersTurn }
+        }
+    }
 
-            if !isUserMove {
-                print("Stage 3 -> 1: Opponent finished move.")
-                self.stage = .usersTurn
+    private func startCastlingTimeout(speech: NormalizeSpeech) {
+        castlingTimeoutTimer?.invalidate()
+        castlingTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
+            if self.isAttemptingCastle {
+                self.isAttemptingCastle = false
+                self.resetToStage1(speech: speech, message: "Cannot Castle")
             }
         }
     }
@@ -159,17 +170,10 @@ class ChessGameManager {
         self.stage = .usersTurn
     }
 
-    // MARK: - Private Helpers
-
-    private func expandPieceName(_ char: String) -> String {
-        let names = ["p": "Pawn", "r": "Rook", "n": "Knight", "b": "Bishop", "q": "Queen", "k": "King"]
-        return names[char.lowercased()] ?? "Piece"
-    }
-
-    private func getPieceChar(_ name: String, isWhite: Bool) -> String {
-        let mapping = ["pawn":"p", "rook":"r", "knight":"n", "night":"n", "bishop":"b", "queen":"q", "king":"k"]
-        let char = mapping[name.lowercased()] ?? "p"
-        return isWhite ? char.uppercased() : char.lowercased()
+    // Helpers
+    func indicesToNotation(row: Int, col: Int) -> String {
+        let files = ["a", "b", "c", "d", "e", "f", "g", "h"]
+        return "\(files[col])\(8 - row)"
     }
 
     private func notationToSquare(_ notation: String) -> String? {
@@ -179,9 +183,15 @@ class ChessGameManager {
         return "\(f)\(clean.suffix(1))"
     }
 
-    func indicesToNotation(row: Int, col: Int) -> String {
-        let files = ["a", "b", "c", "d", "e", "f", "g", "h"]
-        return "\(files[col])\(8 - row)"
+    private func getPieceChar(_ name: String, isWhite: Bool) -> String {
+        let mapping = ["pawn":"p", "rook":"r", "knight":"n", "night":"n", "bishop":"b", "queen":"q", "king":"k"]
+        let char = mapping[name.lowercased()] ?? "p"
+        return isWhite ? char.uppercased() : char.lowercased()
+    }
+
+    private func expandPieceName(_ char: String) -> String {
+        let names = ["p": "Pawn", "r": "Rook", "n": "Knight", "b": "Bishop", "q": "Queen", "k": "King"]
+        return names[char.lowercased()] ?? "Piece"
     }
 
     private func findAllLegalPieces(piece: String, target: Int, state: ChessEngine.GameState) -> [String] {
@@ -189,9 +199,7 @@ class ChessGameManager {
         for r in 0...7 {
             for c in 0...7 where state.board[r][c] == piece {
                 let sq = (c + 1) * 10 + (8 - r)
-                if engine.isMoveLegal(state: state, piece: piece, start: sq, end: target) {
-                    found.append("\(sq)")
-                }
+                if engine.isMoveLegal(state: state, piece: piece, start: sq, end: target) { found.append("\(sq)") }
             }
         }
         return found
