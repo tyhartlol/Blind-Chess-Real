@@ -6,6 +6,7 @@ enum GameStage {
     case usersTurn
     case processingUserMove
     case awaitingClarification
+    case awaitingPromotion // New stage for promotion choice
     case opponentsTurn
 }
 
@@ -16,7 +17,7 @@ class ChessGameManager {
     private var stage: GameStage = .usersTurn
     private var lastMovedColor: String = "black"
     private var ambiguousCandidates: [String] = []
-    private var pendingTargetSquare: String = ""
+    private var pendingTargetSquare: String = "" // Used for both ambiguity and promotion
     private var castlingTimeoutTimer: Timer?
     
     // Castling State
@@ -48,6 +49,8 @@ class ChessGameManager {
             executeUserMoveLogic(webView: webView, coordinator: coordinator, speech: speech)
         case .awaitingClarification:
             handleAmbiguityClarification(speech: speech, coordinator: coordinator)
+        case .awaitingPromotion: // Handle the promotion voice response
+            handlePromotionClarification(speech: speech, coordinator: coordinator)
         case .opponentsTurn:
             break
         }
@@ -74,14 +77,8 @@ class ChessGameManager {
             if speech.castlingSide != "None" {
                 self.isAttemptingCastle = true
                 self.castleSide = speech.castlingSide
-                
                 let fromSq = self.playerIsWhite ? "51" : "58"
-                let toSq: String
-                if self.playerIsWhite {
-                    toSq = (speech.castlingSide == "Kingside") ? "71" : "31"
-                } else {
-                    toSq = (speech.castlingSide == "Kingside") ? "78" : "38"
-                }
+                let toSq = self.playerIsWhite ? (speech.castlingSide == "Kingside" ? "71" : "31") : (speech.castlingSide == "Kingside" ? "78" : "38")
                 
                 coordinator.executeMoveScript(from: fromSq, to: toSq, isWhite: self.playerIsWhite)
                 self.startCastlingTimeout(speech: speech)
@@ -90,7 +87,7 @@ class ChessGameManager {
                 return
             }
 
-            // --- STANDARD MOVE ---
+            // --- STANDARD MOVE / PROMOTION DETECTION ---
             guard let targetSquare = self.notationToSquare(speech.firstSquare) else {
                 self.resetToStage1(speech: speech, message: "Invalid square")
                 return
@@ -100,9 +97,22 @@ class ChessGameManager {
             let candidates = self.findAllLegalPieces(piece: pieceChar, target: Int(targetSquare) ?? 0, state: state)
             
             if candidates.count == 1 {
-                coordinator.executeMoveScript(from: candidates.first!, to: targetSquare, isWhite: self.playerIsWhite)
-                speech.reset()
-                self.stage = .opponentsTurn
+                let fromSq = candidates.first!
+                
+                // Detect if this is a pawn reaching the promotion rank
+                let isPromotion = (pieceChar.lowercased() == "p") && (targetSquare.hasSuffix("8") || targetSquare.hasSuffix("1"))
+                
+                if isPromotion {
+                    self.pendingTargetSquare = targetSquare // Store where the pawn lands
+                    coordinator.executeMoveScript(from: fromSq, to: targetSquare, isWhite: self.playerIsWhite)
+                    TextToSpeechManager.shared.queueSpeak("Promote pawn to what piece?")
+                    speech.reset()
+                    self.stage = .awaitingPromotion
+                } else {
+                    coordinator.executeMoveScript(from: fromSq, to: targetSquare, isWhite: self.playerIsWhite)
+                    speech.reset()
+                    self.stage = .opponentsTurn
+                }
             } else if candidates.count > 1 {
                 self.ambiguousCandidates = candidates
                 self.pendingTargetSquare = targetSquare
@@ -120,19 +130,55 @@ class ChessGameManager {
         if speech.firstSquare != "None" {
             guard let clarifiedFrom = self.notationToSquare(speech.firstSquare) else { return }
             if ambiguousCandidates.contains(clarifiedFrom) {
-                coordinator.executeMoveScript(from: clarifiedFrom, to: pendingTargetSquare, isWhite: self.playerIsWhite)
-                speech.reset()
-                self.stage = .opponentsTurn
+                // Check if the clarified move is also a promotion
+                if speech.firstPiece.lowercased() == "pawn" && (pendingTargetSquare.hasSuffix("8") || pendingTargetSquare.hasSuffix("1")) {
+                    coordinator.executeMoveScript(from: clarifiedFrom, to: pendingTargetSquare, isWhite: self.playerIsWhite)
+                    TextToSpeechManager.shared.queueSpeak("Promote pawn to what piece?")
+                    speech.reset()
+                    self.stage = .awaitingPromotion
+                } else {
+                    coordinator.executeMoveScript(from: clarifiedFrom, to: pendingTargetSquare, isWhite: self.playerIsWhite)
+                    speech.reset()
+                    self.stage = .opponentsTurn
+                }
             } else {
                 TextToSpeechManager.shared.queueSpeak("That piece cannot move there.")
                 speech.reset()
             }
         }
     }
-
+    
+    // --- NEW PROMOTION HANDLER ---
+    private func handlePromotionClarification(speech: NormalizeSpeech, coordinator: ChessComWebView.Coordinator) {
+        if speech.firstPiece != "None" {
+            let choice = speech.firstPiece.lowercased()
+            let file = String(pendingTargetSquare.prefix(1)) // Get the 'e' from 'e8' (e.g., "5")
+            let rank: String
+            
+            // Map piece to the UI rank locations provided
+            switch choice {
+            case "queen": rank = "8"
+            case "knight", "night": rank = "7"
+            case "rook": rank = "6"
+            case "bishop": rank = "5"
+            default:
+                TextToSpeechManager.shared.queueSpeak("Please choose Queen, Knight, Rook, or Bishop.")
+                speech.reset()
+                return
+            }
+            
+            let promotionClickSquare = "\(file)\(rank)" // e.g., "58"
+            print("📣 Promoting to \(choice) at square: \(promotionClickSquare)")
+            
+            // Use the new touch logic specifically for the promotion menu
+            coordinator.executeTouch(at: promotionClickSquare, isWhite: self.playerIsWhite)
+            
+            speech.reset()
+            self.stage = .opponentsTurn
+        }
+    }
     func updateTurn(piece: String, from: String, to: String, isWhitePlayer: Bool) {
         castlingTimeoutTimer?.invalidate()
-        
         let pieceColor = (piece == piece.uppercased()) ? "white" : "black"
         let myColor = self.playerIsWhite ? "white" : "black"
         
@@ -170,7 +216,7 @@ class ChessGameManager {
         self.stage = .usersTurn
     }
 
-    // Helpers
+    // Helpers (Same as before)
     func indicesToNotation(row: Int, col: Int) -> String {
         let files = ["a", "b", "c", "d", "e", "f", "g", "h"]
         return "\(files[col])\(8 - row)"

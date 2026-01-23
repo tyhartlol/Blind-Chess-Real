@@ -91,5 +91,13 @@ struct ChessComWebView: UIViewRepresentable {
                 if let error = error { print("❌ JS Error: \(error)") }
             }
         }
+        
+        func executeTouch(at square: String, isWhite: Bool) {
+            let script = ChessJSBridge.touchScript(at: square, isWhite: isWhite)
+            webView?.evaluateJavaScript(script) { result, error in
+                if let error = error { print("❌ Touch Error: \(error)") }
+                if let res = result { print("🖱️ Touch Result: \(res)") }
+            }
+        }
     }
 }

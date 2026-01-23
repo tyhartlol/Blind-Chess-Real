@@ -147,4 +147,45 @@ struct ChessJSBridge {
         """
         return js
     }
+    
+    static func touchScript(at square: String, isWhite: Bool) -> String {
+        let js = """
+        (function() {
+            const board = document.querySelector('chess-board') || document.querySelector('.board');
+            if (!board) return 'JS ERR: Board not found';
+
+            const boardRect = board.getBoundingClientRect();
+            const squareSize = boardRect.width / 8;
+            const isWhitePerspective = \(isWhite);
+
+            const sq = parseInt("\(square)");
+            const file = Math.floor(sq / 10);
+            const rank = sq % 10;
+
+            let visualFile, visualRank;
+            if (isWhitePerspective) {
+                visualFile = file - 1;
+                visualRank = 8 - rank;
+            } else {
+                visualFile = 8 - file;
+                visualRank = rank - 1;
+            }
+
+            const x = boardRect.left + (visualFile * squareSize) + (squareSize / 2);
+            const y = boardRect.top + (visualRank * squareSize) + (squareSize / 2);
+
+            // Dispatch events directly to whatever is at those coordinates (the promotion menu)
+            const target = document.elementFromPoint(x, y);
+            if (target) {
+                const evOpts = { bubbles: true, clientX: x, clientY: y, pointerType: 'touch', view: window };
+                target.dispatchEvent(new PointerEvent('pointerdown', evOpts));
+                target.dispatchEvent(new PointerEvent('pointerup', evOpts));
+                target.click();
+                return 'JS OK: Touched ' + \(square);
+            }
+            return 'JS ERR: No target at coords';
+        })();
+        """
+        return js
+    }
 }

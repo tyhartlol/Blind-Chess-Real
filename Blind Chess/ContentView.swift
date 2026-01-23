@@ -15,7 +15,7 @@ struct ContentView: View {
                     .foregroundColor(isRecording ? .green : .red)
             }
 
-            ChessComWebView(url: URL(string: "https://www.chess.com/play/computer")!, isPlayingWhite: $isPlayingWhite, normalizer: normalizer)
+            ChessComWebView(url: URL(string: "https://www.chess.com/classroom")!, isPlayingWhite: $isPlayingWhite, normalizer: normalizer)
                 .cornerRadius(12).padding(.horizontal)
 
             Button(action: {
